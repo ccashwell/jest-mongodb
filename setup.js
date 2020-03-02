@@ -1,20 +1,32 @@
 const fs = require('fs');
 const {resolve, join} = require('path');
 const cwd = require('cwd');
-const MongodbMemoryServer = require('mongodb-memory-server');
-const globalConfigPath = join(__dirname, 'globalConfig.json');
+const { MongoMemoryServer, MongoMemoryReplSet } = require('mongodb-memory-server');
 
+const globalConfigPath = join(__dirname, 'globalConfig.json');
 const debug = require('debug')('jest-mongodb:setup');
-const mongod = new MongodbMemoryServer.default(getMongodbMemoryOptions());
 
 module.exports = async () => {
-  if (!mongod.isRunning) {
-    await mongod.start();
+  const opts = getMongodbMemoryOptions()
+  let mongod;
+  
+  if (opts.replSet) {
+    mongod = new MongoMemoryReplSet({
+      ...opts,
+      replSet: { storageEngine: 'wiredTiger' },
+      instanceOpts: opts.instance,
+    });
+    await mongod.waitUntilRunning();
+  } else {
+    mongod = new MongoMemoryServer(getMongodbMemoryOptions());
+    if (!mongod.isRunning) {
+      await mongod.start();
+    }
   }
 
   const mongoConfig = {
     mongoDBName: getMongodbMemoryOptions().instance.dbName,
-    mongoUri: await mongod.getConnectionString()
+    mongoUri: await mongod.getUri()
   };
 
   // Write global config to disk because all tests run in different contexts.
@@ -34,7 +46,7 @@ function getMongodbMemoryOptions() {
   } catch (e) {
     return {
       instance: {
-        dbName: 'jest'
+        dbName: 'jest',
       },
       binary: {
         skipMD5: true
